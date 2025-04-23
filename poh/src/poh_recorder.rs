@@ -10,6 +10,8 @@
 //! For Entries:
 //! * recorded entry must be >= WorkingBank::min_tick_height && entry must be < WorkingBank::max_tick_height
 //!
+use std::time::Duration;
+
 #[cfg(feature = "dev-context-only-utils")]
 use qualifier_attr::qualifiers;
 use {
@@ -2191,5 +2193,18 @@ mod tests {
             PohRecorder::compute_leader_slot_tick_heights(Some((6, 7)), 4),
             (Some(25), 32, 4)
         );
+    }
+}
+
+pub fn calculate_adjusted_tick_time(
+    elapsed_time: Duration,
+    target_tick_duration: Duration,
+) -> Duration {
+    let adjustment_factor = 0.05; // Adjust by 5% of the tick duration
+    let adjusted_duration = target_tick_duration.mul_f64(1.0 + adjustment_factor);
+    if elapsed_time < adjusted_duration {
+        adjusted_duration - elapsed_time
+    } else {
+        Duration::ZERO
     }
 }

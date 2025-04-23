@@ -17,6 +17,8 @@ use {
     },
 };
 
+use crate::poh_recorder::calculate_adjusted_tick_time;
+
 pub struct PohService {
     tick_producer: JoinHandle<()>,
 }
@@ -333,36 +335,33 @@ impl PohService {
         target_ns_per_tick: u64,
     ) {
         let poh = poh_recorder.read().unwrap().poh.clone();
-        let mut timing = PohTiming::new();
-        let mut next_record = None;
         loop {
-            let should_tick = Self::record_or_hash(
-                &mut next_record,
+            let elapsed_time = Instant::now();
+            let should_tick = PohService::record_or_hash(
+                &mut None, // No pending record
                 &poh_recorder,
-                &mut timing,
+                &mut PohTiming::new(),
                 &record_receiver,
                 hashes_per_batch,
                 &poh,
                 target_ns_per_tick,
             );
+    
             if should_tick {
-                // Lock PohRecorder only for the final hash. record_or_hash will lock PohRecorder for record calls but not for hashing.
-                {
-                    let mut lock_time = Measure::start("lock");
-                    let mut poh_recorder_l = poh_recorder.write().unwrap();
-                    lock_time.stop();
-                    timing.total_lock_time_ns += lock_time.as_ns();
-                    let mut tick_time = Measure::start("tick");
-                    poh_recorder_l.tick();
-                    tick_time.stop();
-                    timing.total_tick_time_ns += tick_time.as_ns();
+                let adjusted_tick_time = calculate_adjusted_tick_time(
+                    elapsed_time.elapsed(),
+                    Duration::from_nanos(target_ns_per_tick),
+                );
+    
+                if adjusted_tick_time > Duration::ZERO {
+                    std::thread::sleep(adjusted_tick_time);
                 }
-                timing.num_ticks += 1;
-
-                timing.report(ticks_per_slot);
-                if poh_exit.load(Ordering::Relaxed) {
-                    break;
-                }
+    
+                poh_recorder.write().unwrap().tick();
+            }
+    
+            if poh_exit.load(Ordering::Relaxed) {
+                break;
             }
         }
     }
